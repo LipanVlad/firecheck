@@ -1,0 +1,10 @@
+{
+  "all": true,
+  "include": ["server/**/*.js"],
+  "exclude": ["server/index.js", "server/config.js", "server/seed.js"],
+  "reporter": ["text", "html", "json-summary"],
+  "reports-dir": "coverage",
+  "check-coverage": true,
+  "statements": 70,
+  "branches": 60
+}
