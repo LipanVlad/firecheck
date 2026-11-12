@@ -1,0 +1,1376 @@
+{
+  "openapi": "3.1.1",
+  "info": {
+    "title": "FireCheck API",
+    "version": "0.1.0",
+    "description": "API pentru inspecții PSI de teren, cu funcționare offline și sincronizare. Regulile R1–R13 sunt descrise în docs/requirements.md. Contractul serviciului extern Registrul PSI este în docs/packages/EXT.md."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:3000"
+    }
+  ],
+  "tags": [
+    {
+      "name": "auth",
+      "description": "Autentificare"
+    },
+    {
+      "name": "templates",
+      "description": "Șabloane de checklist"
+    },
+    {
+      "name": "inspections",
+      "description": "Inspecții, asignări și revizie"
+    },
+    {
+      "name": "report",
+      "description": "Raport central"
+    },
+    {
+      "name": "system",
+      "description": "Starea serverului"
+    }
+  ],
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "paths": {
+    "/api/auth/login": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Autentificare",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Autentificat",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/api/auth/logout": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Invalidează tokenul curent",
+        "responses": {
+          "204": {
+            "description": "Delogat"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          }
+        }
+      }
+    },
+    "/api/me": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Utilizatorul curent",
+        "responses": {
+          "200": {
+            "description": "Utilizatorul autentificat",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          }
+        }
+      }
+    },
+    "/api/templates": {
+      "get": {
+        "tags": [
+          "templates"
+        ],
+        "summary": "Lista șabloanelor",
+        "responses": {
+          "200": {
+            "description": "Șabloane",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Template"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "templates"
+        ],
+        "summary": "Creare șablon (doar coordonator)",
+        "description": "Șabloanele sunt imutabile după creare (R9).",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TemplateCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Șablon creat",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Template"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/api/inspections": {
+      "get": {
+        "tags": [
+          "inspections"
+        ],
+        "summary": "Listare inspecții cu filtrare, sortare și paginare",
+        "description": "Inspectorul primește doar inspecțiile proprii (R4); parametrul inspectorId e ignorat pentru el. Pozele nu sunt incluse, doar numărul lor.",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/Status"
+            }
+          },
+          {
+            "name": "inspectorId",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "description": "Subșir căutat literal în locație (% și _ nu sunt caractere speciale)",
+            "schema": {
+              "type": "string",
+              "minLength": 2,
+              "maxLength": 100
+            }
+          },
+          {
+            "name": "dueBefore",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "dueDate",
+                "updatedAt",
+                "location",
+                "status"
+              ],
+              "default": "updatedAt"
+            }
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "default": "desc"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "O pagină de inspecții",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InspectionPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "inspections"
+        ],
+        "summary": "Asignare inspecție (doar coordonator)",
+        "description": "Creează o inspecție cu status assigned. ID-ul e generat de server.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssignmentCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Asignare creată",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Inspection"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/api/inspections/{id}": {
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "get": {
+        "tags": [
+          "inspections"
+        ],
+        "summary": "Detaliile unei inspecții",
+        "responses": {
+          "200": {
+            "description": "Inspecția, cu poze și starea trimiterii la Registru",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Inspection"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "inspections"
+        ],
+        "summary": "Creare sau actualizare idempotentă a unei inspecții proprii (doar inspector)",
+        "description": "Se aplică doar dacă clientUpdatedAt e strict mai nou decât valoarea salvată (R2); altfel 200 cu applied=false. Inspecțiile submitted/approved sunt blocate (409, R3). Inspecția altui inspector întoarce 404 (R4).",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InspectionPut"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Inspecție creată",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PutResult"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Actualizată (applied=true) sau ignorată ca duplicat ori mai veche (applied=false)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PutResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "Inspecția e în revizie sau aprobată (INSPECTION_LOCKED); conține starea de pe server",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LockedError"
+                }
+              }
+            }
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          }
+        }
+      }
+    },
+    "/api/inspections/{id}/review": {
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "post": {
+        "tags": [
+          "inspections"
+        ],
+        "summary": "Aprobare sau returnare (doar coordonator)",
+        "description": "Permis doar din submitted. La aprobare se creează în aceeași tranzacție trimiterea către Registrul PSI (R11).",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Inspecția după revizie",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Inspection"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/api/inspections/{id}/registry/retry": {
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "post": {
+        "tags": [
+          "inspections"
+        ],
+        "summary": "Repune în coadă o trimitere eșuată la Registru (doar coordonator)",
+        "responses": {
+          "202": {
+            "description": "Trimitere repusă în coadă",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistrySubmission"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/api/report": {
+      "get": {
+        "tags": [
+          "report"
+        ],
+        "summary": "Raport central (doar coordonator)",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "inspectorId",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Raport",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Report"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/api/health": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Starea serverului și a bazei de date",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Serverul și baza de date funcționează",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "status",
+                    "db"
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": "ok"
+                    },
+                    "db": {
+                      "const": "ok"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/api/users": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Lista inspectorilor (doar coordonator)",
+        "responses": {
+          "200": {
+            "description": "Inspectori",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/User"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Token primit la /api/auth/login, valabil 7 zile"
+      }
+    },
+    "responses": {
+      "ValidationError": {
+        "description": "Date invalide (VALIDATION_ERROR)",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Unauthenticated": {
+        "description": "Token lipsă, invalid sau expirat, ori date de login greșite (UNAUTHENTICATED)",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Forbidden": {
+        "description": "Rolul nu permite operația (FORBIDDEN)",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "Resursa nu există sau nu aparține utilizatorului (NOT_FOUND)",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Conflict": {
+        "description": "Tranziție nepermisă din starea curentă (INVALID_TRANSITION)",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "PayloadTooLarge": {
+        "description": "Corpul cererii depășește 1 MB (PAYLOAD_TOO_LARGE)",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "InternalError": {
+        "description": "Eroare internă, fără detalii (INTERNAL_ERROR)",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "RateLimited": {
+        "description": "Prea multe autentificări eșuate (RATE_LIMITED); antetul Retry-After spune după câte secunde se poate reîncerca",
+        "headers": {
+          "Retry-After": {
+            "schema": {
+              "type": "integer"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "Role": {
+        "type": "string",
+        "enum": [
+          "coordinator",
+          "inspector"
+        ]
+      },
+      "Status": {
+        "type": "string",
+        "enum": [
+          "assigned",
+          "in_progress",
+          "submitted",
+          "returned",
+          "approved"
+        ]
+      },
+      "User": {
+        "type": "object",
+        "required": [
+          "id",
+          "username",
+          "fullName",
+          "role"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "username": {
+            "type": "string"
+          },
+          "fullName": {
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/Role"
+          }
+        }
+      },
+      "LoginRequest": {
+        "type": "object",
+        "required": [
+          "username",
+          "password"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "username": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 50
+          },
+          "password": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          }
+        }
+      },
+      "LoginResponse": {
+        "type": "object",
+        "required": [
+          "token",
+          "user"
+        ],
+        "properties": {
+          "token": {
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/components/schemas/User"
+          }
+        }
+      },
+      "Question": {
+        "type": "object",
+        "required": [
+          "id",
+          "text"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "examples": [
+              "q1"
+            ]
+          },
+          "text": {
+            "type": "string"
+          }
+        }
+      },
+      "Template": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "questions",
+          "createdAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "questions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Question"
+            }
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "TemplateCreate": {
+        "type": "object",
+        "required": [
+          "name",
+          "questions"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 100
+          },
+          "questions": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 30,
+            "description": "Textele întrebărilor, în ordine; serverul atribuie ID-urile q1, q2, …",
+            "items": {
+              "type": "string",
+              "minLength": 3,
+              "maxLength": 200
+            }
+          }
+        }
+      },
+      "Answer": {
+        "type": "object",
+        "required": [
+          "value"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "value": {
+            "type": "string",
+            "enum": [
+              "pass",
+              "fail",
+              "na"
+            ],
+            "description": "pass = conform, fail = neconform, na = nu se aplică"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 500,
+            "default": ""
+          }
+        }
+      },
+      "Answers": {
+        "type": "object",
+        "description": "Cheile sunt ID-uri de întrebări din șablon",
+        "additionalProperties": {
+          "$ref": "#/components/schemas/Answer"
+        }
+      },
+      "Photo": {
+        "type": "string",
+        "description": "Data URL JPEG sau PNG; imaginea decodată are cel mult 200 KB",
+        "pattern": "^data:image/(jpeg|png);base64,"
+      },
+      "AssignmentCreate": {
+        "type": "object",
+        "required": [
+          "templateId",
+          "inspectorId",
+          "location"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "templateId": {
+            "type": "integer"
+          },
+          "inspectorId": {
+            "type": "integer"
+          },
+          "location": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 200
+          },
+          "dueDate": {
+            "type": "string",
+            "format": "date"
+          }
+        }
+      },
+      "InspectionPut": {
+        "type": "object",
+        "required": [
+          "templateId",
+          "location",
+          "status",
+          "answers",
+          "clientUpdatedAt"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "templateId": {
+            "type": "integer",
+            "description": "Nu se poate schimba după creare"
+          },
+          "location": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 200
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "in_progress",
+              "submitted"
+            ],
+            "description": "submitted cere răspuns la toate întrebările"
+          },
+          "answers": {
+            "$ref": "#/components/schemas/Answers"
+          },
+          "photos": {
+            "type": "array",
+            "maxItems": 3,
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/Photo"
+            }
+          },
+          "clientUpdatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Momentul ultimei modificări pe client; cel mult 5 minute în viitor față de server (R8)"
+          }
+        }
+      },
+      "ReviewRequest": {
+        "type": "object",
+        "required": [
+          "decision"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "approve",
+              "return"
+            ]
+          },
+          "comment": {
+            "type": "string",
+            "minLength": 5,
+            "maxLength": 500,
+            "description": "Obligatoriu la return"
+          }
+        }
+      },
+      "RegistrySubmission": {
+        "type": "object",
+        "required": [
+          "status",
+          "attempts"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "sending",
+              "sent",
+              "failed"
+            ]
+          },
+          "attempts": {
+            "type": "integer"
+          },
+          "lastError": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "nextAttemptAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "receiptNo": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "InspectionSummary": {
+        "type": "object",
+        "required": [
+          "id",
+          "templateId",
+          "inspectorId",
+          "location",
+          "status",
+          "photoCount",
+          "clientUpdatedAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "templateId": {
+            "type": "integer"
+          },
+          "inspectorId": {
+            "type": "integer"
+          },
+          "inspectorName": {
+            "type": "string"
+          },
+          "location": {
+            "type": "string"
+          },
+          "dueDate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "status": {
+            "$ref": "#/components/schemas/Status"
+          },
+          "answers": {
+            "$ref": "#/components/schemas/Answers"
+          },
+          "reviewComment": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "photoCount": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 3
+          },
+          "clientUpdatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "Inspection": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/InspectionSummary"
+          },
+          {
+            "type": "object",
+            "required": [
+              "photos"
+            ],
+            "properties": {
+              "photos": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Photo"
+                }
+              },
+              "registry": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/RegistrySubmission"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "InspectionPage": {
+        "type": "object",
+        "required": [
+          "items",
+          "page",
+          "pageSize",
+          "total",
+          "totalPages"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InspectionSummary"
+            }
+          },
+          "page": {
+            "type": "integer"
+          },
+          "pageSize": {
+            "type": "integer"
+          },
+          "total": {
+            "type": "integer"
+          },
+          "totalPages": {
+            "type": "integer"
+          }
+        }
+      },
+      "PutResult": {
+        "type": "object",
+        "required": [
+          "applied",
+          "inspection"
+        ],
+        "properties": {
+          "applied": {
+            "type": "boolean",
+            "description": "false dacă cererea era un duplicat sau o modificare mai veche (R1, R2)"
+          },
+          "inspection": {
+            "$ref": "#/components/schemas/Inspection"
+          }
+        }
+      },
+      "Report": {
+        "type": "object",
+        "required": [
+          "total",
+          "byStatus",
+          "byInspector",
+          "topNonConformities",
+          "registry"
+        ],
+        "properties": {
+          "total": {
+            "type": "integer"
+          },
+          "byStatus": {
+            "type": "object",
+            "properties": {
+              "assigned": {
+                "type": "integer"
+              },
+              "in_progress": {
+                "type": "integer"
+              },
+              "submitted": {
+                "type": "integer"
+              },
+              "returned": {
+                "type": "integer"
+              },
+              "approved": {
+                "type": "integer"
+              }
+            }
+          },
+          "byInspector": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "inspectorId": {
+                  "type": "integer"
+                },
+                "inspectorName": {
+                  "type": "string"
+                },
+                "assigned": {
+                  "type": "integer"
+                },
+                "in_progress": {
+                  "type": "integer"
+                },
+                "submitted": {
+                  "type": "integer"
+                },
+                "returned": {
+                  "type": "integer"
+                },
+                "approved": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "topNonConformities": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "templateId": {
+                  "type": "integer"
+                },
+                "questionId": {
+                  "type": "string"
+                },
+                "questionText": {
+                  "type": "string"
+                },
+                "failCount": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "registry": {
+            "type": "object",
+            "properties": {
+              "pending": {
+                "type": "integer"
+              },
+              "sending": {
+                "type": "integer"
+              },
+              "sent": {
+                "type": "integer"
+              },
+              "failed": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": [
+              "code",
+              "message"
+            ],
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "VALIDATION_ERROR",
+                  "UNAUTHENTICATED",
+                  "FORBIDDEN",
+                  "NOT_FOUND",
+                  "INSPECTION_LOCKED",
+                  "INVALID_TRANSITION",
+                  "PAYLOAD_TOO_LARGE",
+                  "INTERNAL_ERROR",
+                  "RATE_LIMITED"
+                ]
+              },
+              "message": {
+                "type": "string"
+              },
+              "details": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "LockedError": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Error"
+          },
+          {
+            "type": "object",
+            "required": [
+              "inspection"
+            ],
+            "properties": {
+              "inspection": {
+                "$ref": "#/components/schemas/Inspection"
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}
